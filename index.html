@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0a0a0a">
+<title>EARLOG — receiver</title>
+<style>
+  :root {
+    --bg:#0a0a0a; --fg:#d6d6d6; --dim:#6a6a6a; --line:#1f1f1f; --hot:#ff3b1f;
+    --grid:#1f1f1f; --axis:#383835; --track:#161616;
+    /* gesture colours: categorical slots 1–5, validated on #0a0a0a; "other" folds to grey */
+    --g-C:#3987e5; --g-CC:#d95926; --g-L:#199e70; --g-CL:#c98500; --g-LC:#d55181; --g-O:#6a6a6a;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0 auto; max-width:980px; background:var(--bg); color:var(--fg); font:14px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  header { padding:18px 16px 10px; border-bottom:1px solid var(--line); }
+  h1 { margin:0; font-size:15px; letter-spacing:.22em; font-weight:600; }
+  h2 { margin:0; padding:18px 16px 4px; font-size:11px; letter-spacing:.16em; color:var(--dim); font-weight:400; }
+  #state { color:var(--dim); margin-top:4px; }
+  #state.on { color:var(--hot); }
+  .bar { display:flex; flex-wrap:wrap; gap:8px; padding:12px 16px; border-bottom:1px solid var(--line); }
+  button { background:none; color:var(--fg); border:1px solid #444; padding:10px 13px; font:inherit; letter-spacing:.08em; cursor:pointer; }
+  button:disabled { color:#333; border-color:#1d1d1d; cursor:default; }
+  button.hot { border-color:var(--hot); color:var(--hot); }
+  .tiles { display:grid; border-bottom:1px solid var(--line); }
+  .tiles.t4 { grid-template-columns:repeat(4,1fr); }
+  .tiles.t3 { grid-template-columns:repeat(3,1fr); }
+  .tiles div { padding:10px 12px; border-right:1px solid var(--line); border-top:1px solid var(--line); min-width:0; }
+  .tiles.t4 div:nth-child(4n), .tiles.t3 div:nth-child(3n) { border-right:none; }
+  .tiles span { display:block; color:var(--dim); font-size:10px; letter-spacing:.12em; }
+  .tiles b { display:block; font-size:18px; font-weight:400; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .tiles small { display:block; color:var(--dim); font-size:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .meta { padding:8px 16px 12px; color:var(--dim); font-size:11px; border-bottom:1px solid var(--line); }
+  .filters { position:sticky; top:0; z-index:5; background:var(--bg); padding:10px 16px; border-bottom:1px solid var(--line); display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; }
+  .seg { display:flex; }
+  .seg button { padding:7px 10px; border-color:#2a2a2a; margin-left:-1px; font-size:12px; }
+  .seg button.sel { border-color:var(--fg); color:var(--bg); background:var(--fg); position:relative; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip { padding:6px 9px; border-color:#2a2a2a; font-size:13px; letter-spacing:.1em; display:flex; align-items:center; gap:6px; }
+  .chip.off { color:#3a3a3a; text-decoration:line-through; }
+  .chip.off i { opacity:.25; }
+  i.k { display:inline-block; width:8px; height:8px; border-radius:2px; background:var(--c); flex:none; }
+  .gest { border-bottom:1px solid var(--line); }
+  .grow { display:grid; grid-template-columns:62px 1fr; gap:4px 10px; padding:9px 16px; border-top:1px solid var(--line); align-items:center; }
+  .grow .sym { font-size:18px; letter-spacing:.18em; white-space:nowrap; display:flex; align-items:center; gap:8px; }
+  .grow .stat { grid-column:2; display:flex; align-items:center; gap:10px; color:var(--dim); font-size:11px; flex-wrap:wrap; }
+  .grow .stat b { color:var(--fg); font-weight:400; font-size:13px; }
+  .share { flex:1 1 90px; min-width:70px; height:8px; background:var(--track); border-radius:4px; overflow:hidden; }
+  .share > div { height:100%; border-radius:4px; background:var(--c); }
+  input { background:#121212; color:var(--fg); border:1px solid #2a2a2a; padding:7px 8px; font:inherit; width:100%; }
+  input[type=number] { width:100px; }
+  .chart { padding:4px 8px 6px 8px; min-height:40px; }
+  .chart svg { display:block; overflow:visible; }
+  .chart text { font:10px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; fill:var(--dim); }
+  .chart text.v { fill:var(--fg); }
+  .legend { display:flex; flex-wrap:wrap; gap:4px 14px; padding:2px 16px 4px; color:var(--dim); font-size:11px; }
+  .legend span { display:flex; align-items:center; gap:6px; }
+  .note { padding:4px 16px 10px; color:var(--dim); font-size:11px; }
+  .empty { padding:10px 16px; color:var(--dim); font-size:12px; }
+  g.col:hover .s { filter:brightness(1.35); }
+  rect.cell:hover { stroke:var(--fg); stroke-width:1; }
+  .day { display:flex; justify-content:space-between; gap:10px; padding:12px 16px 5px; color:var(--dim); font-size:11px; letter-spacing:.08em; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .day .dc { display:flex; gap:10px; flex-wrap:wrap; }
+  .day .dc span { display:flex; align-items:center; gap:4px; }
+  .ev { display:grid; grid-template-columns:78px 52px 1fr auto auto; gap:8px; padding:6px 16px; border-bottom:1px solid var(--line); align-items:center; }
+  .ev .sym { font-size:16px; letter-spacing:.15em; display:flex; align-items:center; gap:6px; white-space:nowrap; }
+  .ev .d, .ev .q { color:var(--dim); font-size:11px; white-space:nowrap; }
+  .ev .m { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ev.live .sym, .ev.live .t { color:var(--hot); }
+  .more { margin:10px 16px; }
+  details { border-top:1px solid var(--line); }
+  summary { padding:12px 16px; cursor:pointer; color:var(--dim); font-size:11px; letter-spacing:.16em; }
+  .settings { display:flex; gap:16px; flex-wrap:wrap; padding:0 16px 14px; color:var(--dim); font-size:12px; }
+  .settings label { display:flex; flex-direction:column; gap:4px; }
+  #log { padding:10px 16px 28px; color:var(--dim); font-size:12px; white-space:pre-wrap; max-height:22vh; overflow:auto; border-top:1px solid var(--line); }
+  #nobt { display:none; padding:14px 16px; color:var(--hot); border-bottom:1px solid var(--line); }
+  #tip { position:fixed; z-index:20; display:none; pointer-events:none; background:#141414; border:1px solid #2e2e2e; padding:8px 10px; font-size:12px; min-width:120px; max-width:260px; }
+  #tip .th { color:var(--dim); font-size:11px; margin-bottom:4px; }
+  #tip .tr { display:flex; align-items:center; gap:8px; }
+  #tip .tr i { display:inline-block; width:10px; height:2px; background:var(--c); flex:none; }
+  #tip .tr b { font-weight:600; min-width:24px; text-align:right; }
+  #tip .tr span { color:var(--dim); }
+  #dataBox { border-bottom:1px solid var(--line); background:#0f0f0f; }
+  .reset { padding:14px 16px 16px; display:flex; flex-direction:column; gap:12px; }
+  .reset .rhead { color:var(--dim); font-size:11px; letter-spacing:.14em; }
+  #resetBtn.sel { border-color:var(--fg); color:var(--bg); background:var(--fg); }
+  .reset .rrow { display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap; }
+  .reset .rrow button { flex:none; }
+  .reset .rnote { color:var(--dim); font-size:11px; flex:1 1 220px; }
+  .reset label { color:var(--dim); font-size:12px; display:flex; gap:8px; align-items:center; }
+  .reset input[type=checkbox] { width:auto; }
+  button.arm { border-color:var(--hot); color:var(--hot); background:rgba(255,59,31,.08); }
+  #csvbox { position:fixed; inset:0; z-index:30; background:rgba(0,0,0,.85); display:flex; align-items:center; justify-content:center; padding:16px; }
+  #csvbox .cb-in { background:#111; border:1px solid #2e2e2e; padding:14px; width:100%; max-width:640px; display:flex; flex-direction:column; gap:10px; }
+  #csvbox .cb-h, #csvbox .cb-n { color:var(--dim); font-size:11px; letter-spacing:.08em; }
+  #csvbox textarea { width:100%; height:45vh; background:#0a0a0a; color:var(--fg); border:1px solid #2a2a2a; font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; padding:8px; }
+  #csvbox .cb-b { display:flex; gap:8px; }
+  @media (max-width:420px) {
+    .tiles.t4 { grid-template-columns:repeat(2,1fr); }
+    .tiles.t4 div:nth-child(2n) { border-right:none; }
+    .tiles.t3 b { font-size:16px; }
+    .ev { grid-template-columns:70px 46px 1fr auto; padding:6px 12px 6px 16px; }
+    .ev .t { font-size:13px; }
+    .ev .q { display:none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>EARLOG / RECEIVER</h1>
+  <div id="state">not connected — hold the button 5 s, then CONNECT</div>
+</header>
+<div id="nobt">Web Bluetooth is not available in this browser. Use Chrome or Edge on Android or desktop, with the page opened from https:// or a local file. On iPhone use the Bluefy browser.</div>
+<div class="bar">
+  <button id="connect" class="hot">CONNECT</button>
+  <button id="all" disabled>FETCH ALL</button>
+  <button id="end" disabled>END SESSION</button>
+  <button id="export" disabled>EXPORT CSV</button>
+  <button id="raw" disabled>RAW CSV</button>
+  <button id="resetBtn">RESET</button>
+</div>
+<div id="dataBox" hidden>
+  <div class="reset">
+    <div class="rhead">RESET — each button needs a second tap within 4 s</div>
+    <div class="rrow">
+      <button id="clearPhone">CLEAR PHONE DATA</button>
+      <span class="rnote">Deletes the events and battery history stored in this browser. The earring keeps its own copy:
+        FETCH ALL brings back whatever is still on it.</span>
+    </div>
+    <div class="rrow">
+      <button id="resetAll" disabled>RESET EVERYTHING</button>
+      <span class="rnote">Erases every gesture stored on the earring and clears this phone. Connect first. Cannot be undone —
+        export before.</span>
+    </div>
+    <label><input type="checkbox" id="forgetMeanings"> also forget the gesture meanings</label>
+  </div>
+</div>
+
+<div class="tiles t4" id="device"></div>
+<div class="meta" id="devline">no earring connected yet</div>
+
+<div class="filters">
+  <div class="seg" id="range">
+    <button data-r="today">TODAY</button><button data-r="7">7 D</button><button data-r="30">30 D</button><button data-r="all">ALL</button>
+  </div>
+  <div class="chips" id="chips"></div>
+</div>
+
+<h2>OVERVIEW</h2>
+<div class="tiles t3" id="overview"></div>
+
+<h2>GESTURES — name each once, it applies to every event</h2>
+<div class="gest" id="gest"></div>
+
+<h2 id="tlTitle">PER DAY</h2>
+<div class="legend" id="tlLegend"></div>
+<div class="chart" id="timeline"></div>
+
+<h2>WHEN — weekday × hour</h2>
+<div class="chart" id="heat"></div>
+<div class="note" id="heatNote"></div>
+
+<h2>TIMING CHECK — how long single presses were held</h2>
+<div class="legend" id="holdLegend"></div>
+<div class="chart" id="hold"></div>
+<div class="note" id="holdNote"></div>
+
+<h2>BATTERY — read at each connection</h2>
+<div class="chart" id="batt"></div>
+
+<h2 id="evTitle">EVENTS</h2>
+<div id="events"></div>
+
+<details>
+  <summary>TIMING — stored on the earring, change while connected</summary>
+  <div class="settings">
+    <label>held this long = long press (ms, 200–4000)<input id="long" type="number" min="200" max="4000" step="10" disabled></label>
+    <label>max pause inside a gesture (ms, 150–1500)<input id="gap" type="number" min="150" max="1500" step="10" disabled></label>
+  </div>
+</details>
+<div id="log"></div>
+<div id="tip"></div>
+
+<script>
+'use strict';
+const NUS = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const RX  = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';   // page writes here
+const TX  = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';   // earring notifies here
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// Gestures, in fixed order. Colour follows the gesture, never its rank.
+const SERIES = [
+  { code: 'C',  sym: '•',  name: 'click' },
+  { code: 'CC', sym: '••', name: 'double click' },
+  { code: 'L',  sym: '—',  name: 'long press' },
+  { code: 'CL', sym: '•—', name: 'click, then long' },
+  { code: 'LC', sym: '—•', name: 'long, then click' },
+  { code: 'O',  sym: '✕',  name: 'other' },
+];
+const CSS = getComputedStyle(document.documentElement);
+for (const s of SERIES) s.color = CSS.getPropertyValue('--g-' + s.code).trim();
+const BY_CODE = Object.fromEntries(SERIES.map((s) => [s.code, s]));
+const CODE_OF_SYM = Object.fromEntries(SERIES.filter((s) => s.code !== 'O').map((s) => [s.sym, s.code]));
+const SEQ = ['#104281', '#1c5cab', '#2a78d6', '#5598e7', '#86b6ef', '#b7d3f6'];   // blue ramp, dark → light = few → many
+
+// ── persistence (best effort) ───────────────────────────────────
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+};
+const settings = Object.assign({ gap: 400, long: 500 }, store.get('earlog-settings', {}));
+const view = Object.assign({ range: '7', off: [] }, store.get('earlog-view', {}));
+let meanings = store.get('earlog-meanings', {});
+let logId = store.get('earlog-last-logid', null);
+let presses = new Map(logId ? store.get('earlog-presses-' + logId, []).map((p) => [p.seq, p]) : []);
+let conns = store.get('earlog-connections', []);   // {t, name, mv, count, saved, ignored, power, fw}
+
+let device = null, rxChar = null, textBuf = '', info = null, showRows = 300;
+
+// ── time (Europe/Bratislava) ─────────────────────────────────────
+const DTF = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Bratislava', year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23', weekday: 'short' });
+const WD = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+const WDN = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+const pcache = new Map();
+function P(t) {
+  const k = Math.floor(t);
+  let r = pcache.get(k);
+  if (!r) {
+    const o = Object.fromEntries(DTF.formatToParts(new Date(k * 1000)).map((x) => [x.type, x.value]));
+    const hh = String(+o.hour % 24).padStart(2, '0');
+    r = { h: +o.hour % 24, wd: WD[o.weekday], key: `${o.year}-${o.month}-${o.day}`,
+          date: `${o.day}.${o.month}.${o.year}`, time: `${hh}:${o.minute}:${o.second}` };
+    if (pcache.size > 50000) pcache.clear();
+    pcache.set(k, r);
+  }
+  return r;
+}
+const kNum = (k) => { const [y, m, d] = k.split('-').map(Number); return Date.UTC(y, m - 1, d) / 86400000; };
+const kAdd = (k, n) => new Date((kNum(k) + n) * 86400000).toISOString().slice(0, 10);
+const kDiff = (a, b) => Math.round(kNum(b) - kNum(a));
+const kWd = (k) => (new Date(kNum(k) * 86400000).getUTCDay() + 6) % 7;
+const kDate = (k) => { const [y, m, d] = k.split('-'); return `${d}.${m}.${y}`; };
+const kShort = (k) => { const [, m, d] = k.split('-'); return `${d}.${m}`; };
+const nowS = () => Date.now() / 1000;
+function ago(t) {
+  if (!t) return '–';
+  const s = Math.max(0, nowS() - t);
+  if (s < 60) return Math.round(s) + ' s ago';
+  if (s < 3600) return Math.round(s / 60) + ' min ago';
+  if (s < 86400 * 2) return (s / 3600).toFixed(s < 36000 ? 1 : 0) + ' h ago';
+  return Math.round(s / 86400) + ' d ago';
+}
+function span(s) {
+  if (!isFinite(s)) return '–';
+  if (s < 60) return Math.round(s) + ' s';
+  if (s < 3600) return Math.round(s / 60) + ' min';
+  if (s < 86400) return (s / 3600).toFixed(1) + ' h';
+  return (s / 86400).toFixed(1) + ' d';
+}
+const median = (a) => { if (!a.length) return NaN; const b = a.slice().sort((x, y) => x - y); const m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; };
+function local(t) { if (!t) return ''; const p = P(t); return `${p.date} ${p.time}`; }
+function batteryText(mv, power) {
+  if (!mv) return '–';
+  if (power === 'coin') return (mv / 1000).toFixed(2) + ' V' + (mv < 2600 ? ' LOW' : '');
+  const curve = [[4200, 100], [4100, 90], [4000, 80], [3900, 65], [3800, 50], [3700, 35], [3600, 20], [3500, 10], [3400, 5], [3300, 0]];
+  let pct = 0;
+  if (mv >= 4200) pct = 100;
+  else for (let i = 1; i < curve.length; i++) {
+    const [v1, p1] = curve[i - 1], [v0, p0] = curve[i];
+    if (mv >= v0) { pct = Math.round(p0 + (p1 - p0) * (mv - v0) / (v1 - v0)); break; }
+  }
+  return `${pct}%`;
+}
+function log(s) { const el = $('log'); el.textContent += s + '\n'; el.scrollTop = el.scrollHeight; }
+
+// ── records → events ─────────────────────────────────────────────
+// fw ≥ 1.2: one record per gesture (p.g = C, CC, L, LC, CL, X). fw 1.1: single presses (p.g = ''),
+// grouped here: next press within `gap` ms of the release = same event; held ≥ `long` = long.
+function buildEvents() {
+  const list = [...presses.values()].sort((a, b) => a.seq - b.seq);
+  const events = [];
+  let cur = null;
+  for (const p of list) {
+    if (p.g) { events.push({ presses: [p], g: p.g }); cur = null; continue; }
+    const prev = cur && cur.presses[cur.presses.length - 1];
+    const gap = prev ? (p.dev - (prev.dev + prev.held / 1000)) * 1000 : Infinity;
+    if (!prev || p.boot !== prev.boot || gap > settings.gap || gap < -50) { cur = { presses: [], g: '' }; events.push(cur); }
+    cur.presses.push(p);
+  }
+  for (const e of events) {
+    const a = e.presses[0], z = e.presses[e.presses.length - 1];
+    if (e.g) {
+      e.code = BY_CODE[e.g] && e.g !== 'O' ? e.g : 'O';
+      e.dur = a.held;
+      e.hold = e.g === 'C' || e.g === 'L' ? a.held : null;
+    } else {
+      const pat = e.presses.map((p) => (p.held >= settings.long ? '—' : '•')).join('');
+      e.code = CODE_OF_SYM[pat] || 'O';
+      e.dur = Math.round((z.dev - a.dev) * 1000 + z.held);
+      e.hold = e.presses.length === 1 ? a.held : null;
+    }
+    e.sym = BY_CODE[e.code].sym;
+    e.t = a.t;
+    e.q = e.presses.some((p) => p.q === 'U') ? 'U' : e.presses.some((p) => p.q !== 'I') ? 'F' : 'I';
+    e.live = e.presses.some((p) => p.src === 'live');
+    e.rx = z.rx;
+    e.first = a.seq;
+    e.last = z.seq;
+  }
+  return events;
+}
+
+function rangeOf(events) {
+  const today = P(nowS()).key;
+  if (view.range === 'today') return { from: today, to: today, days: 1 };
+  if (view.range === '7') return { from: kAdd(today, -6), to: today, days: 7 };
+  if (view.range === '30') return { from: kAdd(today, -29), to: today, days: 30 };
+  let from = today, to = today;
+  for (const e of events) if (e.t) { const k = P(e.t).key; if (k < from) from = k; if (k > to) to = k; }
+  return { from, to, days: kDiff(from, to) + 1, all: true };
+}
+const shown = (code) => !view.off.includes(code);
+function inRange(e, R) { if (!e.t) return false; const k = P(e.t).key; return k >= R.from && k <= R.to; }
+
+// ── tooltip ──────────────────────────────────────────────────────
+const TIPS = {};
+const tipEl = $('tip');
+function showTip(chart, i, x, y) {
+  const d = TIPS[chart] && TIPS[chart][i];
+  if (!d) return hideTip();
+  tipEl.replaceChildren();
+  const h = document.createElement('div');
+  h.className = 'th';
+  h.textContent = d.title;
+  tipEl.append(h);
+  for (const r of d.rows) {
+    const row = document.createElement('div');
+    row.className = 'tr';
+    const k = document.createElement('i');
+    if (r.color) k.style.setProperty('--c', r.color); else k.style.visibility = 'hidden';
+    const b = document.createElement('b');
+    b.textContent = r.v;
+    const s = document.createElement('span');
+    s.textContent = r.label;
+    row.append(k, b, s);
+    tipEl.append(row);
+  }
+  tipEl.style.display = 'block';
+  const w = tipEl.offsetWidth, hh = tipEl.offsetHeight;
+  tipEl.style.left = Math.max(6, Math.min(x + 12, innerWidth - w - 6)) + 'px';
+  tipEl.style.top = (y - hh - 14 < 6 ? y + 18 : y - hh - 14) + 'px';
+}
+function hideTip() { tipEl.style.display = 'none'; }
+function tipFrom(ev) {
+  const t = ev.target && ev.target.closest ? ev.target.closest('[data-i]') : null;
+  if (t) showTip(t.dataset.c, +t.dataset.i, ev.clientX, ev.clientY); else hideTip();
+}
+document.addEventListener('pointermove', tipFrom);
+document.addEventListener('pointerdown', tipFrom);
+addEventListener('scroll', hideTip, { passive: true });
+
+// ── SVG helpers ──────────────────────────────────────────────────
+const W = (el) => Math.max(280, Math.min(1000, el.clientWidth - 16));
+function colPath(x, y, w, h, r) {   // rounded data-end on top, square at the baseline
+  r = Math.min(r, w / 2, h);
+  return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`;
+}
+function niceMax(m) {
+  for (const n of [2, 4, 6, 8, 10, 12, 16, 20, 30, 40, 50, 60, 80, 100, 120, 160, 200, 300, 400, 500, 600, 800, 1000]) if (n >= m) return n;
+  return Math.ceil(m / 1000) * 1000;
+}
+const T = (x, y, s, anchor = 'start', cls = '') => `<text x="${x}" y="${y}" text-anchor="${anchor}"${cls ? ` class="${cls}"` : ''}>${esc(s)}</text>`;
+
+// Stacked columns. cols: [{counts:{code:n}, label}] ; series: SERIES subset in fixed order.
+function stackChart(chartId, el, cols, series, opt = {}) {
+  const width = W(el), height = opt.height || 160;
+  const padL = 30, padR = 6, padT = 14, padB = 20;
+  const plotW = width - padL - padR, plotH = height - padT - padB, base = padT + plotH;
+  const totals = cols.map((c) => series.reduce((a, s) => a + (c.counts[s.code] || 0), 0));
+  const ymax = niceMax(Math.max(1, ...totals));
+  const band = plotW / cols.length, bw = Math.max(2, Math.min(24, band * 0.64));
+  let out = '';
+  for (const v of [ymax / 2, ymax]) {
+    const y = base - (v / ymax) * plotH;
+    out += `<line x1="${padL}" x2="${width - padR}" y1="${y}" y2="${y}" stroke="var(--grid)"/>` + T(padL - 6, y + 3, v, 'end');
+  }
+  out += T(padL - 6, base + 3, 0, 'end');
+  if (opt.marker != null) {   // vertical reference line, e.g. the long-press threshold
+    const x = padL + opt.marker * band;
+    out += `<line x1="${x}" x2="${x}" y1="${padT - 6}" y2="${base}" stroke="var(--fg)" stroke-opacity=".55"/>` + T(x + 4, padT - 2, opt.markerLabel, 'start', 'v');
+  }
+  const tips = [];
+  let maxI = -1;
+  totals.forEach((t, i) => { if (t > 0 && (maxI < 0 || t > totals[maxI])) maxI = i; });
+  cols.forEach((c, i) => {
+    const x = padL + i * band + (band - bw) / 2;
+    const segs = series.filter((s) => c.counts[s.code] > 0);
+    let y = base, g = '';
+    segs.forEach((s, j) => {
+      const h = (c.counts[s.code] / ymax) * plotH;
+      const top = j === segs.length - 1;
+      const dh = top ? h : Math.max(1, h - 2);   // 2px surface gap between segments
+      g += top ? `<path class="s" d="${colPath(x, y - h, bw, dh, 4)}" fill="${s.color}"/>`
+               : `<rect class="s" x="${x}" y="${y - h + (h - dh)}" width="${bw}" height="${dh}" fill="${s.color}"/>`;
+      y -= h;
+    });
+    if (i === maxI && opt.labelMax !== false) g += T(x + bw / 2, y - 4, totals[i], 'middle', 'v');
+    g += `<rect data-c="${chartId}" data-i="${i}" x="${padL + i * band}" y="${padT}" width="${band}" height="${plotH + padB}" fill="transparent"/>`;
+    out += `<g class="col">${g}</g>`;
+    tips.push({ title: c.label, rows: [{ v: totals[i], label: 'total' }].concat(segs.slice().reverse().map((s) => ({ v: c.counts[s.code], label: `${s.sym}  ${s.name}`, color: s.color }))) });
+  });
+  out += `<line x1="${padL}" x2="${width - padR}" y1="${base}" y2="${base}" stroke="var(--axis)"/>`;
+  (opt.ticks || []).forEach(([i, s]) => { out += T(padL + (i + 0.5) * band, base + 14, s, 'middle'); });
+  TIPS[chartId] = tips;
+  el.innerHTML = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(opt.aria || '')}">${out}</svg>`;
+}
+
+function legend(el, series) {
+  el.innerHTML = series.map((s) => `<span><i class="k" style="--c:${s.color}"></i>${esc(s.sym)} ${esc(s.name)}</span>`).join('');
+}
+
+// ── render ───────────────────────────────────────────────────────
+function render() {
+  const all = buildEvents();
+  const R = rangeOf(all);
+  const evs = all.filter((e) => shown(e.code) && (R.all ? true : inRange(e, R)));
+  const dated = evs.filter((e) => e.t && inRange(e, R));
+  const hasOther = all.some((e) => e.code === 'O');
+  const series = SERIES.filter((s) => shown(s.code) && (s.code !== 'O' || hasOther));
+
+  renderDevice(all);
+  renderFilters(hasOther);
+  renderOverview(dated, R, all);
+  renderGestures(all, dated, hasOther);
+  renderTimeline(dated, R, series);
+  renderHeat(dated);
+  renderHold(dated);
+  renderBattery();
+  renderEvents(evs);
+
+  const has = presses.size > 0;
+  $('export').disabled = !has;
+  $('raw').disabled = !has;
+}
+
+function renderDevice(all) {
+  const last = conns.length ? conns[conns.length - 1] : null;
+  const d = info || last;
+  const unsaved = info ? Math.max(0, info.count - info.saved) : null;
+  $('device').innerHTML = [
+    ['ON EARRING', d ? d.count : '–', d ? 'gestures stored' : ''],
+    ['UNSAVED', unsaved == null ? '–' : unsaved, unsaved ? 'export to mark saved' : info ? 'all saved' : ''],
+    ['BATTERY', d ? batteryText(d.mv, d.power) : '–', d && d.mv ? `${d.mv} mV` : ''],
+    ['LAST CONNECT', last ? ago(last.t) : '–', last ? local(last.t).slice(0, 16) : ''],
+  ].map(([l, v, s]) => `<div><span>${l}</span><b>${esc(v)}</b><small>${esc(s)}</small></div>`).join('');
+  const q = { I: 0, F: 0, U: 0 };
+  for (const e of all) q[e.q === 'U' ? 'U' : e.q === 'I' ? 'I' : 'F']++;
+  const parts = [];
+  if (d) parts.push(`${d.name} · fw ${d.fw} · ${d.power === 'coin' ? 'coin cell' : 'LiPo'}`);
+  if (info && info.long) parts.push(`long ≥ ${settings.long} ms, pause ≤ ${settings.gap} ms`);
+  if (info && info.ignored) parts.push(`${info.ignored} unrecognised since power-up`);
+  parts.push(`on this phone: ${all.length} events`);
+  if (all.length) parts.push(`clock: ${q.I} exact · ${q.F} estimated${q.U ? ` · ${q.U} undated (connect once to date them)` : ''}`);
+  $('devline').textContent = parts.join('  ·  ');
+}
+
+function renderFilters(hasOther) {
+  for (const b of $('range').children) b.classList.toggle('sel', b.dataset.r === view.range);
+  $('chips').innerHTML = SERIES.filter((s) => s.code !== 'O' || hasOther).map((s) =>
+    `<button class="chip${shown(s.code) ? '' : ' off'}" data-code="${s.code}" title="${esc(s.name)}"><i class="k" style="--c:${s.color}"></i>${esc(s.sym)}</button>`).join('');
+}
+
+function renderOverview(dated, R, all) {
+  const n = dated.length;
+  const days = new Set(dated.map((e) => P(e.t).key));
+  const ts = dated.map((e) => e.t).sort((a, b) => a - b);
+  const gaps = ts.slice(1).map((t, i) => t - ts[i]);
+  const byHour = new Array(24).fill(0);
+  for (const e of dated) byHour[P(e.t).h]++;
+  const peak = n ? byHour.indexOf(Math.max(...byHour)) : -1;
+  const lastE = all.filter((e) => e.t && shown(e.code)).reduce((m, e) => (!m || e.t > m.t ? e : m), null);
+  const label = { today: 'today', 7: 'last 7 days', 30: 'last 30 days', all: `since ${kDate(R.from)}` }[view.range];
+  $('overview').innerHTML = [
+    ['TOTAL', n, label],
+    ['PER DAY', (n / R.days).toFixed(n / R.days < 10 ? 1 : 0), `average over ${R.days} d`],
+    ['ACTIVE DAYS', `${days.size}/${R.days}`, '≥ 1 gesture'],
+    ['LAST', lastE ? ago(lastE.t) : '–', lastE ? `${lastE.sym}  ${P(lastE.t).key === P(nowS()).key ? P(lastE.t).time.slice(0, 5) : kShort(P(lastE.t).key) + ' ' + P(lastE.t).time.slice(0, 5)}` : ''],
+    ['MEDIAN GAP', gaps.length ? span(median(gaps)) : '–', 'between gestures'],
+    ['PEAK HOUR', peak >= 0 ? `${String(peak).padStart(2, '0')}–${String((peak + 1) % 24).padStart(2, '0')}` : '–', peak >= 0 ? `${byHour[peak]} gestures` : ''],
+  ].map(([l, v, s]) => `<div><span>${l}</span><b>${esc(v)}</b><small>${esc(s)}</small></div>`).join('');
+}
+
+function renderGestures(all, dated, hasOther) {
+  if (document.activeElement && document.activeElement.dataset && document.activeElement.dataset.sym) return;   // typing a meaning
+  const today = P(nowS()).key;
+  const n = dated.length;
+  $('gest').innerHTML = SERIES.filter((s) => s.code !== 'O' || hasOther).map((s) => {
+    const mine = dated.filter((e) => e.code === s.code);
+    const share = n ? mine.length / n : 0;
+    const lastE = all.filter((e) => e.code === s.code && e.t).reduce((m, e) => (!m || e.t > m.t ? e : m), null);
+    const todayN = all.filter((e) => e.code === s.code && e.t && P(e.t).key === today).length;
+    const med = median(mine.map((e) => e.dur).filter((v) => v > 0));
+    return `<div class="grow"${shown(s.code) ? '' : ' style="opacity:.35"'}>
+      <div class="sym"><i class="k" style="--c:${s.color}"></i>${esc(s.sym)}</div>
+      <input data-sym="${esc(s.sym)}" value="${esc(meanings[s.sym] || '')}" placeholder="${esc(s.name)} — meaning">
+      <div class="stat"><b>${mine.length}</b><span>${Math.round(share * 100)}%</span>
+        <div class="share" style="--c:${s.color}"><div style="width:${(share * 100).toFixed(1)}%"></div></div>
+        <span style="white-space:nowrap">today ${todayN} · ${isFinite(med) ? (med / 1000).toFixed(2) + ' s' : '–'} · ${lastE ? ago(lastE.t) : 'never'}</span></div>
+    </div>`;
+  }).join('');
+  for (const inp of document.querySelectorAll('#gest input')) {
+    inp.oninput = () => { meanings[inp.dataset.sym] = inp.value; store.set('earlog-meanings', meanings); if (renderEvents.last) renderEvents(renderEvents.last); };
+    inp.onblur = () => setTimeout(render, 0);
+  }
+}
+
+function renderTimeline(dated, R, series) {
+  const el = $('timeline');
+  legend($('tlLegend'), series);
+  if (!dated.length) { el.innerHTML = '<div class="empty">nothing in this range</div>'; TIPS.tl = []; $('tlTitle').textContent = 'PER DAY'; return; }
+  let cols, ticks, title;
+  const add = (c, code) => { c.counts[code] = (c.counts[code] || 0) + 1; };
+  if (view.range === 'today') {
+    title = 'PER HOUR — today';
+    cols = Array.from({ length: 24 }, (_, h) => ({ counts: {}, label: `${String(h).padStart(2, '0')}:00–${String((h + 1) % 24).padStart(2, '0')}:00` }));
+    for (const e of dated) add(cols[P(e.t).h], e.code);
+    ticks = [0, 6, 12, 18].map((h) => [h, String(h).padStart(2, '0')]);
+  } else if (R.days <= 62) {
+    title = 'PER DAY';
+    cols = Array.from({ length: R.days }, (_, i) => { const k = kAdd(R.from, i); return { key: k, counts: {}, label: `${WDN[kWd(k)]} ${kDate(k)}` }; });
+    for (const e of dated) { const i = kDiff(R.from, P(e.t).key); if (cols[i]) add(cols[i], e.code); }
+    const step = R.days <= 10 ? 1 : R.days <= 31 ? 5 : 10;
+    ticks = cols.map((c, i) => [i, R.days <= 10 ? WDN[kWd(c.key)] : kShort(c.key)]).filter(([i]) => (R.days - 1 - i) % step === 0);
+  } else {
+    title = 'PER WEEK';
+    const start = kAdd(R.from, -kWd(R.from));
+    const nW = Math.floor(kDiff(start, R.to) / 7) + 1;
+    cols = Array.from({ length: nW }, (_, i) => { const k = kAdd(start, i * 7); return { key: k, counts: {}, label: `week of ${kDate(k)}` }; });
+    for (const e of dated) add(cols[Math.floor(kDiff(start, P(e.t).key) / 7)], e.code);
+    const step = Math.max(1, Math.ceil(nW / 6));
+    ticks = cols.map((c, i) => [i, kShort(c.key)]).filter(([i]) => (nW - 1 - i) % step === 0);
+  }
+  $('tlTitle').textContent = title;
+  stackChart('tl', el, cols, series, { ticks, aria: title + ', gestures stacked by type' });
+}
+
+function renderHeat(dated) {
+  const el = $('heat');
+  const grid = Array.from({ length: 7 }, () => new Array(24).fill(0));
+  const det = Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => ({})));
+  for (const e of dated) { const p = P(e.t); grid[p.wd][p.h]++; det[p.wd][p.h][e.code] = (det[p.wd][p.h][e.code] || 0) + 1; }
+  const max = Math.max(0, ...grid.flat());
+  if (!max) { el.innerHTML = '<div class="empty">nothing in this range</div>'; $('heatNote').textContent = ''; TIPS.heat = []; return; }
+  const width = W(el), padL = 24, padT = 14, cw = (width - padL - 4) / 24, ch = 16;
+  const height = padT + 7 * ch + 30;
+  let out = '';
+  [0, 6, 12, 18].forEach((h) => { out += T(padL + h * cw + 1, padT - 4, String(h).padStart(2, '0')); });
+  const tips = [];
+  for (let d = 0; d < 7; d++) {
+    out += T(0, padT + d * ch + 11, WDN[d]);
+    for (let h = 0; h < 24; h++) {
+      const v = grid[d][h];
+      const fill = v ? SEQ[Math.min(5, Math.ceil((v / max) * 6) - 1)] : 'var(--track)';
+      const i = tips.length;
+      tips.push({ title: `${WDN[d]} ${String(h).padStart(2, '0')}:00–${String((h + 1) % 24).padStart(2, '0')}:00`,
+        rows: [{ v, label: v === 1 ? 'gesture' : 'gestures' }].concat(SERIES.filter((s) => det[d][h][s.code]).map((s) => ({ v: det[d][h][s.code], label: `${s.sym}  ${s.name}`, color: s.color }))) });
+      out += `<rect class="cell" data-c="heat" data-i="${i}" x="${padL + h * cw + 1}" y="${padT + d * ch + 1}" width="${Math.max(1, cw - 2)}" height="${ch - 2}" rx="2" fill="${fill}"/>`;
+    }
+  }
+  const ly = padT + 7 * ch + 12;
+  out += T(padL, ly + 8, 'fewer');
+  SEQ.forEach((c, i) => { out += `<rect x="${padL + 44 + i * 16}" y="${ly}" width="14" height="10" rx="2" fill="${c}"/>`; });
+  out += T(padL + 44 + 6 * 16 + 4, ly + 8, `more (max ${max} per hour)`);
+  TIPS.heat = tips;
+  el.innerHTML = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="gestures by weekday and hour">${out}</svg>`;
+  const byD = grid.map((r) => r.reduce((a, b) => a + b, 0));
+  const busyD = byD.indexOf(Math.max(...byD));
+  const quietHours = [];
+  for (let h = 0; h < 24; h++) if (grid.every((r) => !r[h])) quietHours.push(h);
+  $('heatNote').textContent = `busiest weekday: ${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][busyD]} (${byD[busyD]})` +
+    (quietHours.length && quietHours.length < 24 ? ` · never used: ${hourRuns(quietHours)}` : '');
+}
+function hourRuns(hs) {
+  const runs = [];
+  for (const h of hs) { const r = runs[runs.length - 1]; if (r && r[1] === h - 1) r[1] = h; else runs.push([h, h]); }
+  return runs.map(([a, b]) => `${String(a).padStart(2, '0')}–${String((b + 1) % 24).padStart(2, '0')} h`).join(', ');
+}
+
+function renderHold(dated) {
+  const el = $('hold');
+  const ser = [BY_CODE.C, BY_CODE.L].filter((s) => shown(s.code));
+  legend($('holdLegend'), ser);
+  const singles = dated.filter((e) => e.hold != null && (e.code === 'C' || e.code === 'L') && shown(e.code));
+  if (!singles.length) { el.innerHTML = '<div class="empty">no clicks or long presses in this range</div>'; $('holdNote').textContent = ''; TIPS.hold = []; return; }
+  const BIN = 50, NB = 40;   // 0–2 s in 50 ms bins, then one bin for ≥ 2 s
+  const cols = Array.from({ length: NB + 1 }, (_, i) => ({ counts: {}, label: i < NB ? `held ${i * BIN}–${(i + 1) * BIN} ms` : 'held ≥ 2000 ms' }));
+  for (const e of singles) { const i = Math.min(NB, Math.floor(e.hold / BIN)); cols[i].counts[e.code] = (cols[i].counts[e.code] || 0) + 1; }
+  const thr = settings.long;
+  stackChart('hold', el, cols, ser, {
+    height: 130, marker: Math.min(NB, thr / BIN), markerLabel: `long ≥ ${thr} ms`, labelMax: false,
+    ticks: [[0, '0'], [10, '0.5'], [20, '1'], [30, '1.5'], [NB, '2 s+']], aria: 'hold time of single presses',
+  });
+  const c = singles.filter((e) => e.code === 'C').map((e) => e.hold), l = singles.filter((e) => e.code === 'L').map((e) => e.hold);
+  const near = singles.filter((e) => Math.abs(e.hold - thr) <= 100).length;
+  const parts = [];
+  if (c.length) parts.push(`clicks: median ${Math.round(median(c))} ms`);
+  if (l.length) parts.push(`long presses: median ${Math.round(median(l))} ms`);
+  parts.push(near ? `${near} within ±100 ms of the threshold — if gestures come out wrong, move the threshold away from your habit` : 'none close to the threshold');
+  $('holdNote').textContent = parts.join(' · ');
+}
+
+function renderBattery() {
+  const el = $('batt');
+  const name = info ? info.name : conns.length ? conns[conns.length - 1].name : null;
+  const pts = conns.filter((c) => c.mv && (!name || c.name === name));
+  if (pts.length < 2) { el.innerHTML = '<div class="empty">the voltage is saved at every connection — the trend appears from the second one</div>'; TIPS.batt = []; return; }
+  const coin = pts[pts.length - 1].power === 'coin';
+  const width = W(el), height = 130, padL = 38, padR = 50, padT = 10, padB = 20;
+  const plotW = width - padL - padR, plotH = height - padT - padB, base = padT + plotH;
+  let lo = Math.min(...pts.map((p) => p.mv)), hi = Math.max(...pts.map((p) => p.mv));
+  lo = Math.floor(Math.min(lo, coin ? 2400 : 3400) / 100) * 100;
+  hi = Math.ceil(Math.max(hi, coin ? 3000 : 4200) / 100) * 100;
+  const t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+  const X = (t) => padL + (t1 > t0 ? ((t - t0) / (t1 - t0)) * plotW : plotW);
+  const Y = (mv) => padT + (1 - (mv - lo) / (hi - lo)) * plotH;
+  let out = '';
+  const step = (hi - lo) / 2;
+  for (const v of [lo, lo + step, hi]) out += `<line x1="${padL}" x2="${padL + plotW}" y1="${Y(v)}" y2="${Y(v)}" stroke="${v === lo ? 'var(--axis)' : 'var(--grid)'}"/>` + T(padL - 6, Y(v) + 3, (v / 1000).toFixed(2), 'end');
+  if (coin && 2600 > lo && 2600 < hi) out += `<line x1="${padL}" x2="${padL + plotW}" y1="${Y(2600)}" y2="${Y(2600)}" stroke="var(--hot)" stroke-opacity=".6"/>` + T(padL + 4, Y(2600) + 12, 'LOW 2.60 V');
+  const d = pts.map((p, i) => `${i ? 'L' : 'M'}${X(p.t).toFixed(1)},${Y(p.mv).toFixed(1)}`).join('');
+  out += `<path d="${d}" fill="none" stroke="${BY_CODE.C.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  const z = pts[pts.length - 1];
+  out += `<circle cx="${X(z.t)}" cy="${Y(z.mv)}" r="4" fill="${BY_CODE.C.color}" stroke="var(--bg)" stroke-width="2"/>` + T(X(z.t) + 8, Y(z.mv) + 4, (z.mv / 1000).toFixed(2) + ' V', 'start', 'v');
+  out += T(padL, base + 14, P(t0).date) + T(padL + plotW, base + 14, P(t1).date, 'end');
+  const tips = pts.map((p) => ({ title: local(p.t).slice(0, 16), rows: [{ v: (p.mv / 1000).toFixed(2) + ' V', label: 'battery' }, { v: p.count, label: 'stored on earring' }] }));
+  pts.forEach((p, i) => {
+    const xa = i ? (X(pts[i - 1].t) + X(p.t)) / 2 : padL, xb = i < pts.length - 1 ? (X(p.t) + X(pts[i + 1].t)) / 2 : padL + plotW;
+    out += `<rect data-c="batt" data-i="${i}" x="${xa}" y="${padT}" width="${Math.max(1, xb - xa)}" height="${plotH}" fill="transparent"/>`;
+  });
+  TIPS.batt = tips;
+  el.innerHTML = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="battery voltage at each connection">${out}</svg>`;
+}
+
+function renderEvents(evs) {
+  renderEvents.last = evs;
+  const list = evs.slice().sort((a, b) => (b.t || 0) - (a.t || 0) || b.first - a.first);
+  $('evTitle').textContent = `EVENTS — ${list.length}`;
+  if (!list.length) { $('events').innerHTML = '<div class="empty">nothing in this range</div>'; return; }
+  const groups = new Map();
+  for (const e of list) { const k = e.t ? P(e.t).key : 'undated'; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(e); }
+  let html = '', rows = 0;
+  for (const [k, es] of groups) {
+    if (rows >= showRows) break;
+    const cnt = {};
+    for (const e of es) cnt[e.code] = (cnt[e.code] || 0) + 1;
+    const head = k === 'undated' ? 'NO TIME YET — connect once after a reset to date these' : `${WDN[kWd(k)]} ${kDate(k)}`;
+    html += `<div class="day"><span>${head}</span><span class="dc"><span>${es.length}</span>${SERIES.filter((s) => cnt[s.code]).map((s) =>
+      `<span><i class="k" style="--c:${s.color}"></i>${esc(s.sym)} ${cnt[s.code]}</span>`).join('')}</span></div>`;
+    for (const e of es) {
+      if (rows++ >= showRows) break;
+      const recent = e.live && Date.now() - (e.rx || 0) < 60000;
+      html += `<div class="ev${recent ? ' live' : ''}"><span class="t">${e.t ? P(e.t).time : '—'}</span>` +
+        `<span class="sym"><i class="k" style="--c:${BY_CODE[e.code].color}"></i>${esc(e.sym)}</span>` +
+        `<span class="m">${esc(meanings[e.sym] || '')}</span><span class="d">${(e.dur / 1000).toFixed(2)} s</span>` +
+        `<span class="q" title="I exact · F estimated · U undated">${e.q}</span></div>`;
+    }
+  }
+  if (list.length > showRows) html += `<button class="more" id="more">SHOW ${Math.min(300, list.length - showRows)} MORE</button>`;
+  $('events').innerHTML = html;
+  if ($('more')) $('more').onclick = () => { showRows += 300; renderEvents(evs); };
+}
+
+// ── incoming lines ───────────────────────────────────────────────
+function setLogId(id) {
+  if (logId === id) return;
+  if (presses.size && logId !== null) log(`earring log changed (${logId} → ${id}); earlier rows kept in storage under the old id`);
+  logId = id;
+  store.set('earlog-last-logid', logId);
+  presses = new Map(store.get('earlog-presses-' + logId, []).map((p) => [p.seq, p]));
+}
+function addPress(f, src) {
+  // R|P,seq,utc,q,duration_ms,boot,device_s[,gesture]
+  const p = { seq: +f[1], t: +f[2], q: f[3], held: +f[4], boot: +f[5], dev: +f[6], g: f[7] || '', src, rx: Date.now() };
+  const old = presses.get(p.seq);
+  if (old && old.src === 'live' && src === 'backlog') { p.src = 'live'; p.rx = old.rx; }
+  presses.set(p.seq, p);
+}
+let saveTimer = null;
+function persistSoon() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => store.set('earlog-presses-' + logId, [...presses.values()]), 300);
+}
+let renderPending = false;
+function scheduleRender() { if (!renderPending) { renderPending = true; setTimeout(() => { renderPending = false; render(); }, 150); } }
+
+function onLine(line) {
+  const f = line.split(',');
+  switch (f[0]) {
+    case 'HI':
+      info = { name: f[1], fw: f[2], logId: f[3], count: +f[4], saved: +f[5], mv: +f[6], power: f[7] || 'lipo',
+               long: f[8] === undefined ? null : +f[8], ignored: f[10] === undefined ? null : +f[10] };
+      setLogId(info.logId);
+      conns.push({ t: nowS(), name: info.name, fw: info.fw, mv: info.mv, count: info.count, saved: info.saved, ignored: info.ignored, power: info.power });
+      if (conns.length > 1000) conns = conns.slice(-1000);
+      store.set('earlog-connections', conns);
+      log(`${info.name} fw ${info.fw} · ${info.count} stored · ${info.saved} already saved · ${info.mv} mV`);
+      if (f[8] !== undefined) setTiming(+f[8], +f[9]);
+      if (info.ignored) log(`${info.ignored} unrecognised gestures ignored since the earring powered up`);
+      render();
+      break;
+    case 'CFG': setTiming(+f[1], +f[2]); log(`timing on earring: long ≥ ${f[1]} ms, pause ≤ ${f[2]} ms`); break;
+    case 'R': addPress(f, 'backlog'); persistSoon(); scheduleRender(); break;
+    case 'P':
+      addPress(f, 'live');
+      if (info) info.count = Math.max(info.count, +f[1] + 1);
+      persistSoon();
+      render();
+      if (navigator.vibrate) navigator.vibrate(20);
+      break;
+    case 'END': log(`backlog complete (next ${f[1]})`); render(); break;
+    case 'BAT': if (info) { info.mv = +f[1]; render(); } break;
+    case 'OK':
+      if (f[1] === 'A') { if (info) info.saved = +f[2]; log(`earring: ${f[2]} marked as saved`); render(); }
+      if (f[1] === 'WIPE') {
+        log('earring erased');
+        clearPhoneData(wipePending ? wipePending.meanings : false);
+        wipePending = null;
+        send('H').catch(() => {});   // new log id, empty counts
+      }
+      break;
+    case 'BYE': log('earring closed the session'); break;
+    default:    log(line);
+  }
+}
+function onNotify(ev) {
+  textBuf += new TextDecoder().decode(ev.target.value);
+  let i;
+  while ((i = textBuf.indexOf('\n')) >= 0) {
+    const line = textBuf.slice(0, i).trim();
+    textBuf = textBuf.slice(i + 1);
+    if (line) onLine(line);
+  }
+}
+
+// ── Bluetooth ────────────────────────────────────────────────────
+async function send(cmd) {
+  if (!rxChar) return;
+  const data = new TextEncoder().encode(cmd);
+  if (rxChar.writeValueWithResponse) await rxChar.writeValueWithResponse(data);
+  else await rxChar.writeValue(data);
+}
+function setConnected(on) {
+  $('state').textContent = on ? `connected: ${device.name || 'EARLOG'} — gestures appear live` : 'not connected — hold the button 5 s, then CONNECT';
+  $('state').className = on ? 'on' : '';
+  $('connect').textContent = on ? 'DISCONNECT' : 'CONNECT';
+  $('end').disabled = !on;
+  $('all').disabled = !on;
+  $('resetAll').disabled = !on;
+  if (!on) { rxChar = null; $('long').disabled = $('gap').disabled = true; }
+}
+async function connect() {
+  if (device && device.gatt.connected) { device.gatt.disconnect(); return; }
+  try {
+    if (!device) {
+      device = await navigator.bluetooth.requestDevice({ filters: [{ services: [NUS] }] });
+      device.addEventListener('gattserverdisconnected', () => { setConnected(false); log('disconnected'); });
+    }
+    const gatt = await device.gatt.connect();
+    const svc = await gatt.getPrimaryService(NUS);
+    const txChar = await svc.getCharacteristic(TX);
+    rxChar = await svc.getCharacteristic(RX);
+    txChar.addEventListener('characteristicvaluechanged', onNotify);
+    await txChar.startNotifications();
+    textBuf = '';
+    setConnected(true);
+    await send('H');                                     // identify (log id, counts, battery, timing)
+    await send('T' + (Date.now() / 1000).toFixed(3));   // clock sync point
+    await send('D');                                     // everything not yet saved
+  } catch (e) {
+    log('error: ' + e.message);
+    if (String(e.message).includes('chooser')) device = null;
+  }
+}
+
+// ── export ───────────────────────────────────────────────────────
+function download(name, text) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+// iPhone browsers (Bluefy and the like) often can't save a download. There the file goes through the
+// share sheet (Save to Files, Mail, AirDrop); if that is missing too, a text box to copy from.
+const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+async function deliver(name, text) {   // true once the data has left the page
+  if (!IOS) { download(name, text); return true; }
+  try {
+    const file = new File([text], name, { type: 'text/csv' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file] });
+      return true;
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') return false;   // share sheet closed without saving
+  }
+  return showCsv(name, text);
+}
+function showCsv(name, text) {
+  return new Promise((resolve) => {
+    const box = document.createElement('div');
+    box.id = 'csvbox';
+    box.innerHTML = '<div class="cb-in"><div class="cb-h"></div><textarea readonly></textarea>' +
+      '<div class="cb-b"><button class="hot" data-a="copy">COPY</button><button data-a="close">CLOSE</button></div>' +
+      '<div class="cb-n">Paste into Notes, Mail or Numbers. If connected, the earring marks these as saved after COPY.</div></div>';
+    box.querySelector('.cb-h').textContent = name;
+    const ta = box.querySelector('textarea');
+    ta.value = text;
+    document.body.append(box);
+    box.onclick = async (ev) => {
+      const a = ev.target.dataset ? ev.target.dataset.a : null;
+      if (a === 'close') { box.remove(); resolve(false); return; }
+      if (a !== 'copy') return;
+      let ok = false;
+      try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {
+        ta.focus(); ta.select(); ta.setSelectionRange(0, text.length);
+        try { ok = document.execCommand('copy'); } catch (e2) { ok = false; }
+      }
+      ev.target.textContent = ok ? 'COPIED' : 'SELECTED — COPY BY HAND';
+      if (ok) setTimeout(() => { box.remove(); resolve(true); }, 500);
+    };
+  });
+}
+const csvCell = (v) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v);
+const stamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+async function markSaved() {
+  if (!info || !rxChar) return;
+  let next = info.saved;
+  while (presses.has(next)) next++;
+  if (next > info.saved) await send('A' + next);
+}
+async function exportEvents() {
+  const lines = ['event,local_date,local_time,weekday,utc_iso,gesture,pattern,meaning,quality,first_seq,last_seq,duration_ms'];
+  buildEvents().forEach((e, i) => {
+    const p = e.t ? P(e.t) : null;
+    lines.push([i + 1, p ? p.date : '', p ? p.time : '', p ? WDN[p.wd] : '', e.t ? new Date(e.t * 1000).toISOString() : '',
+      e.code, e.sym, meanings[e.sym] || '', e.q, e.first, e.last, e.dur].map(csvCell).join(','));
+  });
+  if (await deliver(`earlog_events_${stamp()}.csv`, lines.join('\n') + '\n')) await markSaved();
+}
+async function exportRaw() {
+  const evOf = new Map();
+  buildEvents().forEach((e, i) => e.presses.forEach((p) => evOf.set(p.seq, i + 1)));
+  const lines = ['seq,utc_epoch,local_time,gesture,duration_ms,quality,boot,device_s,event'];
+  [...presses.values()].sort((a, b) => a.seq - b.seq).forEach((p) =>
+    lines.push([p.seq, p.t.toFixed(3), local(p.t), p.g || 'press', p.held, p.q, p.boot, p.dev.toFixed(3), evOf.get(p.seq)].join(',')));
+  if (await deliver(`earlog_presses_${stamp()}.csv`, lines.join('\n') + '\n')) await markSaved();
+}
+
+// ── timing (lives on the earring; the page keeps a copy to group fw 1.1 presses) ──
+function setTiming(longMs, gapMs) {
+  if (!(longMs > 0 && gapMs > 0)) return;
+  settings.long = longMs;
+  settings.gap = gapMs;
+  store.set('earlog-settings', settings);
+  $('long').value = longMs;
+  $('gap').value = gapMs;
+  $('long').disabled = $('gap').disabled = !rxChar;
+  render();
+}
+
+// ── reset ────────────────────────────────────────────────────────
+// Two taps: the first arms the button and says what will be deleted, the second (within 4 s) does it.
+function twoTap(btn, warning, action) {
+  let t = null;
+  const idle = btn.textContent;
+  const disarm = () => { clearTimeout(t); btn.classList.remove('arm'); btn.textContent = idle; };
+  btn.onclick = async () => {
+    if (!btn.classList.contains('arm')) {
+      btn.classList.add('arm');
+      btn.textContent = warning();
+      t = setTimeout(disarm, 4000);
+      return;
+    }
+    disarm();
+    await action();
+  };
+}
+function clearPhoneData(alsoMeanings) {
+  clearTimeout(saveTimer);
+  try {
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('earlog-presses-')) keys.push(k); }
+    keys.forEach((k) => localStorage.removeItem(k));
+    localStorage.removeItem('earlog-connections');
+    if (alsoMeanings) localStorage.removeItem('earlog-meanings');
+  } catch (e) {}
+  presses = new Map();
+  conns = [];
+  if (alsoMeanings) meanings = {};
+  showRows = 300;
+  log('phone data cleared' + (alsoMeanings ? ', meanings too' : ''));
+  render();
+}
+let wipePending = null;   // meanings flag of a RESET EVERYTHING waiting for the earring's OK
+twoTap($('clearPhone'), () => `TAP AGAIN — DELETE ${buildEvents().length} EVENTS HERE`, () => clearPhoneData($('forgetMeanings').checked));
+twoTap($('resetAll'), () => {
+  const unsaved = info ? Math.max(0, info.count - info.saved) : 0;
+  return `TAP AGAIN — ERASE ${info ? info.count : ''} ON EARRING${unsaved ? `, ${unsaved} NOT EXPORTED` : ''}`;
+}, async () => {
+  if (!rxChar) { log('connect first'); return; }
+  wipePending = { meanings: $('forgetMeanings').checked };
+  try { await send('WIPE'); } catch (e) { wipePending = null; log('error: ' + e.message); }
+});
+
+// ── wiring the page ──────────────────────────────────────────────
+if (!navigator.bluetooth) { $('nobt').style.display = 'block'; $('connect').disabled = true; }
+$('gap').value = settings.gap;
+$('long').value = settings.long;
+for (const id of ['gap', 'long']) {
+  $(id).onchange = async () => {
+    const l = Math.round(+$('long').value), g = Math.round(+$('gap').value);
+    if (!(l >= 200 && l <= 4000 && g >= 150 && g <= 1500)) { log('timing out of range: long 200–4000 ms, pause 150–1500 ms'); return; }
+    try { await send(`G${l},${g}`); } catch (e) { log('error: ' + e.message); }
+  };
+}
+$('range').onclick = (ev) => {
+  const b = ev.target.closest('button');
+  if (!b) return;
+  view.range = b.dataset.r;
+  showRows = 300;
+  store.set('earlog-view', view);
+  render();
+};
+$('chips').onclick = (ev) => {
+  const b = ev.target.closest('button');
+  if (!b) return;
+  const c = b.dataset.code;
+  view.off = view.off.includes(c) ? view.off.filter((x) => x !== c) : view.off.concat(c);
+  store.set('earlog-view', view);
+  render();
+};
+$('resetBtn').onclick = () => {   // opens / closes the reset panel right under the buttons
+  const box = $('dataBox');
+  box.hidden = !box.hidden;
+  $('resetBtn').classList.toggle('sel', !box.hidden);
+};
+$('connect').onclick = connect;
+$('export').onclick = exportEvents;
+$('raw').onclick = exportRaw;
+$('all').onclick = () => send('F');
+$('end').onclick = () => send('Z');
+let resizeT = null;
+addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(render, 150); });
+setInterval(() => { if (document.visibilityState === 'visible' && !(document.activeElement && document.activeElement.tagName === 'INPUT')) render(); }, 30000);
+render();
+</script>
+</body>
+</html>
